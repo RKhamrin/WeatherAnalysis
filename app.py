@@ -9,7 +9,10 @@ def process_chunk(chunk):
     chunk['mean_temp_city'] = chunk['temperature'].rolling(window=30, min_periods=0).median()
     chunk['std_temp_city'] = chunk['temperature'].rolling(window=30, min_periods=0).std()
     chunk = chunk.fillna({'std_temp_city': 0})
-    chunk['anomaly'] = chunk.apply(lambda row: (row.temperature < row.std_temp_city - 2 * row.mean_temp_city) or (row.temperature > row.mean_temp_city + 2 * row.std_temp_city), axis=1)
+    chunk['anomaly'] = chunk.apply(
+        lambda row: (row.temperature < row.std_temp_city - 2 * row.mean_temp_city) or \
+          (row.temperature > row.mean_temp_city + 2 * row.std_temp_city), axis=1
+        )
 
     chunk['mean_temp_season'] = chunk.groupby(['season'])['temperature'].transform(lambda x: x.rolling(window=30, min_periods=0).median())
     chunk['std_temp_season'] = chunk.groupby(['season'])['temperature'].transform(lambda x: x.rolling(window=30, min_periods=0).std())
@@ -31,69 +34,68 @@ def get_weather(city_name, api_key):
         weather_link = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric"
         response_weather = requests.get(weather_link)
         return response_weather.json()
-    else:
-        return None
+    return None
 
 def main():
     st.title("Анализ данных с использованием Streamlit")
 
     uploaded_file = st.file_uploader("Выберите CSV-файл", type=["csv"])
-
+    
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
     else:
         st.write("Пожалуйста, загрузите CSV-файл.")
 
     if uploaded_file is not None:
-        city_name = st.selectbox("Select city", data['city'].unique())
-        city_data = data[data.city==city_name].copy()
+        data = pd.read_csv(uploaded_file)
+        
+        city_name = st.selectbox("Выберите город", data['city'].unique())
+        city_data = data[data['city']==city_name].copy()
         city_data['timestamp'] = city_data['timestamp'].apply(lambda date: datetime.datetime.strptime(date, '%Y-%m-%d').date())
         city_data = process_chunk(city_data)
         
-        today = datetime.datetime.now()
-        next_year = today.year + 1
         first_date = datetime.date(2010, 1, 1)
         last_date = datetime.date(2019, 12, 29)
 
         start_date, end_date = st.date_input(
-            "Выберите даты, по которым хотите увидеть погоду",
+            "Выберите даты, по которым хотите увидеть погоду. Минимальная дата - 1 января 2010 года, максимальная - 12 декабря 2019 года",
             (first_date, datetime.date(2010, 1, 1)),
             min_value=first_date,
             max_value=last_date,
             format="YYYY-MM-DD",
         )
         city_data_dates = city_data[(city_data.timestamp >= start_date) & (city_data.timestamp <= end_date)]
-        # line(df, x='year', y='lifeExp', color='country', markers=True)
         fig = px.scatter(city_data_dates, x='timestamp', y='temperature', color='anomaly')
         st.plotly_chart(fig)
-        # st.write(f'Начало: {start_date}\nКонец: {end_date}')
 
         api_key = st.text_input("Введите OpenWeatherMap API токен")
-
         
         st.write(f'Средняя температура и разброс в {city_name} по сезонам:')
-        st.dataframe(city_data.groupby('season')[['mean_temp', 'std_temp']].agg(lambda l: l.values[0]))
-
-        
-        # st.write(f'Разброс температуры в {city_name}: {city_data['std_temp'].values[0]}')
-        # st.write(f'Средняя температура в {city_name}: {city_data['mean_temp'].values[0]}')
-
+        seasonal_stats = city_data.groupby('season')[['mean_temp', 'std_temp']].agg(lambda l: l.values[0])
+        st.dataframe(seasonal_stats)
 
         current_weather = get_weather(city_name, api_key)
+        cur_date = str(datetime.datetime.today()).split()[0]
+        cur_month = int(cur_date.split('-')[1])
+        if cur_month in [12, 1, 2]:
+            cur_season = 'winter'
+        elif cur_month in [3, 4, 5]:
+            cur_season = 'spring'
+        elif cur_month in [6, 7, 8]:
+            cur_season = 'summer'
+        else:
+            cur_season = 'autumn'
+
+        mean_temp, std_temp = seasonal_stats.reset_index()[
+            seasonal_stats.reset_index()['season'] == cur_season
+        ][['mean_temp', 'std_temp']].values[0]
+        low_bound, high_bound = mean_temp - 2 * std_temp, mean_temp + 2 * std_temp
+        is_weather_normal = 'неаномальная' if low_bound < current_weather['main']['temp'] < high_bound else 'аномальная'
+
         if current_weather:
-            st.success(f"Температура в {city_name}: {current_weather['main']['temp']}°C")
+            st.success(f"Температура в {city_name}: {current_weather['main']['temp']}°C. Температура {is_weather_normal}")
         else:
             st.error(f"Ошибка при запросе API")
 
 if __name__ == "__main__":
     main()
-
-    # if st.checkbox("Удалить строки с пропущенными значениями"):
-    #     data = data.dropna()
-    #     st.write("Пропущенные значения удалены:")
-    #     st.dataframe(data)
-
-    # if st.checkbox("Заменить пропущенные значения средними"):
-    #     data = data.fillna(data.mean())
-    #     st.write("Пропущенные значения заменены средними:")
-    #     st.dataframe(data)
