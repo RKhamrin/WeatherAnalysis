@@ -34,21 +34,19 @@ def get_weather(city_name, api_key):
         weather_link = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric"
         response_weather = requests.get(weather_link)
         return response_weather.json()
-    return None
-
+    st.write({"cod":401, "message": "Invalid API key. Please see https://openweathermap.org/faq#error401 for more info."})
+    
 def main():
     st.title("Анализ данных с использованием Streamlit")
 
     uploaded_file = st.file_uploader("Выберите CSV-файл", type=["csv"])
-    
+
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
     else:
         st.write("Пожалуйста, загрузите CSV-файл.")
 
-    if uploaded_file is not None:
-        data = pd.read_csv(uploaded_file)
-        
+    if uploaded_file is not None:        
         city_name = st.selectbox("Выберите город", data['city'].unique())
         city_data = data[data['city']==city_name].copy()
         city_data['timestamp'] = city_data['timestamp'].apply(lambda date: datetime.datetime.strptime(date, '%Y-%m-%d').date())
@@ -75,24 +73,24 @@ def main():
         st.dataframe(seasonal_stats)
 
         current_weather = get_weather(city_name, api_key)
-        cur_date = str(datetime.datetime.today()).split()[0]
-        cur_month = int(cur_date.split('-')[1])
-        if cur_month in [12, 1, 2]:
-            cur_season = 'winter'
-        elif cur_month in [3, 4, 5]:
-            cur_season = 'spring'
-        elif cur_month in [6, 7, 8]:
-            cur_season = 'summer'
-        else:
-            cur_season = 'autumn'
-
-        mean_temp, std_temp = seasonal_stats.reset_index()[
-            seasonal_stats.reset_index()['season'] == cur_season
-        ][['mean_temp', 'std_temp']].values[0]
-        low_bound, high_bound = mean_temp - 2 * std_temp, mean_temp + 2 * std_temp
-        is_weather_normal = 'неаномальная' if low_bound < current_weather['main']['temp'] < high_bound else 'аномальная'
-
         if current_weather:
+            cur_date = str(datetime.datetime.today()).split()[0]
+            cur_month = int(cur_date.split('-')[1])
+            if cur_month in [12, 1, 2]:
+                cur_season = 'winter'
+            elif cur_month in [3, 4, 5]:
+                cur_season = 'spring'
+            elif cur_month in [6, 7, 8]:
+                cur_season = 'summer'
+            else:
+                cur_season = 'autumn'
+
+            mean_temp, std_temp = seasonal_stats.reset_index()[
+                seasonal_stats.reset_index()['season'] == cur_season
+            ][['mean_temp', 'std_temp']].values[0]
+            low_bound, high_bound = mean_temp - 2 * std_temp, mean_temp + 2 * std_temp
+            is_weather_normal = 'неаномальная' if low_bound < current_weather['main']['temp'] < high_bound else 'аномальная'
+
             st.success(f"Температура в {city_name}: {current_weather['main']['temp']}°C. Температура {is_weather_normal}")
         else:
             st.error(f"Ошибка при запросе API")
